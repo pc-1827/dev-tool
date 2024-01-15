@@ -1,4 +1,4 @@
-package main
+package localapp
 
 import (
 	"database/sql"
@@ -15,7 +15,7 @@ const (
 	dbname   = "system_store"
 )
 
-func connect() (*sql.DB, error) {
+func Connect() (*sql.DB, error) {
 	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
 		"password=%s dbname=%s sslmode=disable",
 		host, port, user, password, dbname)
