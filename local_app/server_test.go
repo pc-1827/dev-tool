@@ -25,16 +25,12 @@ func TestGETRequests(t *testing.T) {
 
 		fmt.Printf("Request URL: %s\n", request.URL.Path)
 
-		localapp.Router.ServeHTTP(response, request) // Use localapp.router instead of creating a new router
+		localapp.Router.ServeHTTP(response, request)
 
-		if response.Code != http.StatusOK {
-			t.Fatalf("expected status %d, got %d", http.StatusOK, response.Code)
-		}
+		assertResponseStatus(t, response.Code, http.StatusOK)
 
-		// Remove newline characters from the response body
 		cleanedBody := strings.ReplaceAll(response.Body.String(), "\n", "")
 
-		// Parse the JSON response
 		var requests []localapp.Request
 		err := json.Unmarshal([]byte(cleanedBody), &requests)
 		if err != nil {
@@ -63,5 +59,12 @@ func assertResponseBody(t *testing.T, got int, want int) {
 	t.Helper()
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func assertResponseStatus(t *testing.T, got, want int) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("expected status %d, got %d", want, got)
 	}
 }
