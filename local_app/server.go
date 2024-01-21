@@ -20,7 +20,7 @@ type Request struct {
 var Router = http.NewServeMux()
 
 func SetupRouter(db *sql.DB) {
-	// Use http.HandleFunc to create handlers for routes
+
 	Router.HandleFunc("/requests", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -73,21 +73,19 @@ func GetRequests(w http.ResponseWriter, db *sql.DB) {
 }
 
 func RecordRequest(w http.ResponseWriter, r *http.Request, db *sql.DB) {
-	// Read the request body
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error reading request body: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Insert the data into the 'requests' table
 	_, err = db.Exec("INSERT INTO requests (request_data) VALUES ($1)", string(body))
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error inserting data into database: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Respond with success
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprint(w, "Request recorded successfully")
 }
