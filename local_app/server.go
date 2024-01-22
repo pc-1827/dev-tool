@@ -17,11 +17,11 @@ type Request struct {
 	RequestTime time.Time `json:"request_time"`
 }
 
-var Router = http.NewServeMux()
+//var Router = http.NewServeMux()
 
 func SetupRouter(db *sql.DB) {
 
-	Router.HandleFunc("/requests", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/requests", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			GetRequests(w, db)
@@ -31,11 +31,8 @@ func SetupRouter(db *sql.DB) {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
-}
-
-func StartServer() {
 	fmt.Println("Server listening on :5000")
-	http.ListenAndServe(":5000", Router)
+	http.ListenAndServe(":5000", nil)
 }
 
 func GetRequests(w http.ResponseWriter, db *sql.DB) {

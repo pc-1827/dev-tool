@@ -15,6 +15,4 @@ func main() {
 	defer db.Close()
 
 	localapp.SetupRouter(db)
-
-	localapp.StartServer()
 }

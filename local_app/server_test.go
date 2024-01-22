@@ -25,8 +25,6 @@ func TestGETRequests(t *testing.T) {
 
 		fmt.Printf("Request URL: %s\n", request.URL.Path)
 
-		localapp.Router.ServeHTTP(response, request)
-
 		assertResponseStatus(t, response.Code, http.StatusOK)
 
 		cleanedBody := strings.ReplaceAll(response.Body.String(), "\n", "")
