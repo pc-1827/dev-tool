@@ -83,6 +83,6 @@ func RecordRequest(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
+	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, "Request recorded successfully")
 }
