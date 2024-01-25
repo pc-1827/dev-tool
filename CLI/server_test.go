@@ -14,7 +14,7 @@ func TestForwardRequests(t *testing.T) {
 	stopServer := make(chan struct{})
 
 	go func() {
-		CLI.SetupRouter(5000, "requests")
+		CLI.SetupRouter(5000, "requests", "dummywebhook.dev")
 	}()
 
 	defer func() {

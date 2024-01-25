@@ -12,9 +12,13 @@ func main() {
 	fmt.Print("Please enter the port at which your local app is hosted: ")
 	fmt.Scanf("%d", &port)
 
-	var endpoint string
-	fmt.Print("Please enter the endpoint at which you would like to receive data: ")
-	fmt.Scanf("%s", &endpoint)
+	var route string
+	fmt.Print("Please enter the route at which you would like to receive data: ")
+	fmt.Scanf("%s", &route)
 
-	CLI.SetupRouter(port, endpoint)
+	var webhook string
+	fmt.Print("Please enter the webhook from which you would like to recieve data: ")
+	fmt.Scanf("%s", &webhook)
+
+	CLI.SetupRouter(port, route, webhook)
 }
