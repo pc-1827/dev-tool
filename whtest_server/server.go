@@ -1,6 +1,8 @@
 package whtest
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,11 +33,27 @@ func WebhookAccepterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	TestURLGenerator(w, r)
+	TestURLTransfer(w, r)
 
 	//function which registers webhook at the third party site.
 }
 
-func TestURLGenerator(w http.ResponseWriter, r *http.Request) {
+func TestURLTransfer(w http.ResponseWriter, r *http.Request) {
 
+}
+
+func TestURLGenerator() (string, error) {
+	byteSize := (6 + 1) / 2
+
+	URlBytes := make([]byte, byteSize)
+	_, err := rand.Read(URlBytes)
+	if err != nil {
+		return "", err
+	}
+
+	testURL := hex.EncodeToString(URlBytes)
+
+	testURL = testURL[:6]
+
+	return testURL, nil
 }
