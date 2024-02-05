@@ -1,6 +1,7 @@
 package CLI
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"net/http"
@@ -30,21 +31,48 @@ func SetupRouter(port int, route string, webhook string) {
 
 }
 
+var handlerSwitch chan struct{} = make(chan struct{}, 1)
+
+func DataHandler(conn *websocket.Conn, port int, route string) {
+	TestURLHandler(conn, port, route)
+	handlerSwitch <- struct{}{} // Signal the switch to DataTransferHandler
+	DataTransferHandler(conn)
+}
+
+func DataTransferHandler(conn *websocket.Conn) {
+	fmt.Println("Switching to DataTransferHandler...")
+	<-handlerSwitch // Wait for the signal to switch
+	go func() {
+		for {
+			_, body, err := conn.ReadMessage()
+			if err != nil {
+				fmt.Println("Error receiving message:", err)
+				return
+			}
+
+			resp, err := http.Post("http://localhost:3000/cli", "application/json", bytes.NewBuffer(body))
+			if err != nil {
+				log.Println("Error sending data to /cli route", err)
+			}
+
+			defer resp.Body.Close()
+			fmt.Println("Message received from websocket forwarding to /cli.")
+		}
+	}()
+}
+
 func TestURLHandler(conn *websocket.Conn, port int, route string) {
 	fmt.Print("Attempting to receive TestURL.\n")
+	_, testURL, err := conn.ReadMessage()
+	if err != nil {
+		fmt.Println("Error receiving Test URL:", err)
+		return
+	}
 
-	go func() {
-		_, testURL, err := conn.ReadMessage()
-		if err != nil {
-			fmt.Println("Error receiving Test URL:", err)
-			return
-		}
+	localServerURL := "http://localhost:" + strconv.Itoa(port) + "/" + route
+	testServerURL := "http://" + string(testURL) + ".whtest.dev"
 
-		localServerURL := "http://localhost:" + strconv.Itoa(port) + "/" + route
-		testServerURL := "http://" + string(testURL) + ".whtest.dev"
-
-		fmt.Printf("WebSocket traffic will be transferred from %s ---> %s\n", testServerURL, localServerURL)
-	}()
+	fmt.Printf("WebSocket traffic will be transferred from %s ---> %s\n", testServerURL, localServerURL)
 }
 
 func WebhookTransfer(conn *websocket.Conn, webhook string) {
@@ -67,7 +95,6 @@ func whtestServerConnection(webhook string, port int, route string) {
 	}
 
 	fmt.Println("Successfully connected with whtest server")
-	TestURLHandler(conn, port, route)
+	DataHandler(conn, port, route)
 	WebhookTransfer(conn, webhook)
-
 }
