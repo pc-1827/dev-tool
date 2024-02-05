@@ -7,15 +7,8 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"sync"
-	"time"
 
 	"github.com/gorilla/websocket"
-)
-
-var (
-	wsConn *websocket.Conn
-	connMu sync.Mutex
 )
 
 func SetupRouter() {
@@ -27,9 +20,6 @@ func SetupRouter() {
 	})
 
 	http.HandleFunc("/whtest", func(w http.ResponseWriter, r *http.Request) {
-		// if r.Method != http.MethodPost {
-		// 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		// }
 		websocket, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Println(err)
@@ -107,34 +97,4 @@ func ForwardDataHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Print("Message received on /webhook and forwaded to CLI.\n")
 	}()
-}
-
-func waitForConnection() (*websocket.Conn, error) {
-	for {
-		conn, err := getWebSocketConnection()
-		if err != nil {
-			return nil, err
-		}
-		if conn != nil {
-			return conn, nil
-		}
-		time.Sleep(time.Millisecond * 100) // Adjust the sleep duration based on your needs
-	}
-}
-
-func setWebSocketConnection(conn *websocket.Conn) {
-	connMu.Lock()
-	defer connMu.Unlock()
-	wsConn = conn
-}
-
-func getWebSocketConnection() (*websocket.Conn, error) {
-	connMu.Lock()
-	defer connMu.Unlock()
-	return wsConn, nil
-}
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
 }
