@@ -1,5 +1,8 @@
 package main
 
+// Main application user interface takes local server port and route as an input.
+// *Note: Need to develop a UI similar to ngrok in future.
+
 import (
 	"CLI"
 	"fmt"
@@ -14,6 +17,7 @@ func main() {
 
 	var route string
 	fmt.Print("Please enter the route at which you would like to receive data: ")
+	fmt.Print("Please enter the route without '/'")
 	fmt.Scanf("%s", &route)
 
 	var webhook string

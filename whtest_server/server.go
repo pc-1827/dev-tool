@@ -31,6 +31,7 @@ func SetupRouter() {
 	})
 }
 
+// Handles receivig the webhook from the CLI
 func WebhookAccepterHandler(conn *websocket.Conn) string {
 
 	go func() {
@@ -52,6 +53,7 @@ func WebhookAccepterHandler(conn *websocket.Conn) string {
 	//function which registers webhook at the third party site.
 }
 
+// Sends TestURL to the CLI
 func TestURLTransfer(conn *websocket.Conn, testURL string) {
 	fmt.Print("TestURL is being transfered.\n")
 	if err := conn.WriteMessage(websocket.TextMessage, []byte(testURL)); err != nil {
@@ -60,6 +62,8 @@ func TestURLTransfer(conn *websocket.Conn, testURL string) {
 	}
 }
 
+// TestURLGenerator used to random string for TestURL
+// *Note: This will be probably replaced with pre generated custom subdomains.
 func TestURLGenerator() (string, error) {
 	fmt.Print("TestURL is being generated\n")
 	byteSize := (6 + 1) / 2

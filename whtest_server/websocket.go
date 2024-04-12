@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// Websocket connection logic
 var (
 	wsConn *websocket.Conn
 	connMu sync.Mutex
