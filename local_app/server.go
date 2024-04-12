@@ -1,5 +1,8 @@
 package localapp
 
+// This localapp is built for testing purposes its only function is to store
+// data received in a postgresql database
+
 import (
 	"database/sql"
 	"encoding/json"
@@ -17,8 +20,6 @@ type Request struct {
 	RequestTime time.Time `json:"request_time"`
 }
 
-//var Router = http.NewServeMux()
-
 func SetupRouter(db *sql.DB) {
 
 	http.HandleFunc("/requests", func(w http.ResponseWriter, r *http.Request) {
@@ -35,6 +36,7 @@ func SetupRouter(db *sql.DB) {
 	http.ListenAndServe(":5000", nil)
 }
 
+// Fetches the data from the database and displays it in the browser for ease of development.
 func GetRequests(w http.ResponseWriter, db *sql.DB) {
 	rows, err := db.Query("SELECT * FROM requests ORDER BY id DESC;")
 	if err != nil {
@@ -69,6 +71,7 @@ func GetRequests(w http.ResponseWriter, db *sql.DB) {
 	}
 }
 
+// Inserts data received into the database.
 func RecordRequest(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 
 	body, err := io.ReadAll(r.Body)
