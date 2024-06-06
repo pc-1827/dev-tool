@@ -20,9 +20,9 @@ func main() {
 	fmt.Print("Please enter the route without '/'")
 	fmt.Scanf("%s", &route)
 
-	var webhook string
-	fmt.Print("Please enter the webhook from which you would like to recieve data: ")
-	fmt.Scanf("%s", &webhook)
+	// var webhook string
+	// fmt.Print("Please enter the webhook from which you would like to recieve data: ")
+	// fmt.Scanf("%s", &webhook)
 
-	CLI.SetupRouter(port, route, webhook)
+	CLI.SetupRouter(port, route)
 }
