@@ -26,31 +26,62 @@ func SetupRouter() {
 			return
 		}
 		setWebSocketConnection(websocket)
-		var webhook string = WebhookAccepterHandler(websocket)
-		fmt.Print(string(webhook))
+		MessageAccepterHandler(websocket)
 	})
 }
 
-// Handles receivig the webhook from the CLI
-func WebhookAccepterHandler(conn *websocket.Conn) string {
+// // Handles receiving the webhook from the CLI
+// func MessageAccepterHandler(conn *websocket.Conn) string {
 
+// 	message := ""
+
+// 	go func() {
+// 		_, encodedMessage, err := conn.ReadMessage()
+// 		if err != nil {
+// 			log.Println(err)
+// 		}
+
+// 		message = string(encodedMessage)
+// 		//fmt.Print(string(encodedMessage))
+// 	}()
+
+// 	fmt.Print("Received the encoded message.\n")
+// 	fmt.Print(message)
+
+// 	if message == "EncodedMessage" {
+// 		testURL, _ := TestURLGenerator()
+// 		fmt.Printf("%s this is the TestURL\n", testURL)
+// 		TestURLTransfer(conn, testURL)
+// 	}
+
+// 	return ""
+// 	//function which registers webhook at the third party site.
+// }
+
+// Handles receiving the webhook from the CLI
+func MessageAccepterHandler(conn *websocket.Conn) {
 	go func() {
-		_, webhook, err := conn.ReadMessage()
-		if err != nil {
-			log.Println(err)
+		for {
+			_, encodedMessage, err := conn.ReadMessage()
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+			message := string(encodedMessage)
+			fmt.Print("Received the encoded message.\n")
+
+			if message == "EncodedMessage" {
+				testURL, err := TestURLGenerator()
+				if err != nil {
+					log.Println("Error generating TestURL:", err)
+					return
+				}
+				fmt.Printf("%s this is the TestURL\n", testURL)
+				TestURLTransfer(conn, testURL)
+			}
 		}
-
-		fmt.Print(string(webhook))
 	}()
-
-	fmt.Print("Received the webhook.\n")
-
-	testURL, _ := TestURLGenerator()
-	fmt.Printf("%s this is the TestURL\n", testURL)
-	TestURLTransfer(conn, testURL)
-
-	return ""
-	//function which registers webhook at the third party site.
 }
 
 // Sends TestURL to the CLI
