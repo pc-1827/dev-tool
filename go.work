@@ -4,4 +4,5 @@ use (
 	./CLI
 	./local_app
 	./whtest_server
+	./subdomains
 )

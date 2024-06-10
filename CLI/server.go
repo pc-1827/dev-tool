@@ -38,11 +38,12 @@ func SubdomainHandler(conn *websocket.Conn, port int, route string) {
 		subdomainReceived = true
 		// go whtestServerConnection(string(subdomain), port, route)
 		go whtestServerConnection("ws://localhost:2001/subdomain", port, route)
+
+		localServerURL := "http://localhost:" + strconv.Itoa(port) + "/" + route
+
+		fmt.Printf("WebSocket traffic will be transferred from %s ---> %s\n", subdomain, localServerURL)
 	}
 
-	localServerURL := "http://localhost:" + strconv.Itoa(port) + "/" + route
-
-	fmt.Printf("WebSocket traffic will be transferred from %s ---> %s\n", subdomain, localServerURL)
 }
 
 // After successfully establishing a websocket connection between CLI and server hosted
