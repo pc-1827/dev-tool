@@ -11,8 +11,6 @@ import (
 )
 
 func DataTransferHandler(conn *websocket.Conn, port int, route string) {
-	fmt.Println("Switching to DataTransferHandler...")
-	<-handlerSwitch // Wait for the signal to switch
 	go func() {
 		for {
 			_, body, err := conn.ReadMessage()

@@ -17,33 +17,32 @@ func SetupRouter(port int, route string) {
 
 	// Calls whtestServerConnection which attempts to connect to the online hosted
 	// server through websockets through which data is transferred between servers
-	go whtestServerConnection(port, route)
+	go whtestServerConnection("ws://localhost:2000/whtest", port, route)
 	log.Fatal(http.ListenAndServe(":3000", nil))
 }
 
-var handlerSwitch chan struct{} = make(chan struct{}, 1)
+var subdomainReceived = false
 
-// DataHandler contains two handlers within itself, the data received initially is
-// handled by TestURLHandler(gives user information about the test URL), after that
-// all data is handled by DataTransferHandler(which transfers data to local server).
-func DataHandler(conn *websocket.Conn, port int, route string) {
-	TestURLHandler(conn, port, route)
-	handlerSwitch <- struct{}{} // Signal the switch to DataTransferHandler
-	DataTransferHandler(conn, port, route)
-}
-
-func TestURLHandler(conn *websocket.Conn, port int, route string) {
-	fmt.Print("Attempting to receive TestURL.\n")
-	_, testURL, err := conn.ReadMessage()
+func SubdomainHandler(conn *websocket.Conn, port int, route string) {
+	fmt.Print("Attempting to receive Subdomain.\n")
+	_, subdomain, err := conn.ReadMessage()
 	if err != nil {
-		fmt.Println("Error receiving Test URL:", err)
+		fmt.Println("Error receiving Subdomain:", err)
 		return
 	}
 
-	localServerURL := "http://localhost:" + strconv.Itoa(port) + "/" + route
-	testServerURL := "http://" + string(testURL) + ".whtest.dev"
+	if string(subdomain) == "None" {
+		fmt.Println("No subdomain available")
+	} else {
+		conn.Close()
+		subdomainReceived = true
+		// go whtestServerConnection(string(subdomain), port, route)
+		go whtestServerConnection("ws://localhost:2001/subdomain", port, route)
+	}
 
-	fmt.Printf("WebSocket traffic will be transferred from %s ---> %s\n", testServerURL, localServerURL)
+	localServerURL := "http://localhost:" + strconv.Itoa(port) + "/" + route
+
+	fmt.Printf("WebSocket traffic will be transferred from %s ---> %s\n", subdomain, localServerURL)
 }
 
 // After successfully establishing a websocket connection between CLI and server hosted
@@ -72,10 +71,8 @@ func MessageTransfer(conn *websocket.Conn) {
 	log.Println("Message sent successfully")
 }
 
-func whtestServerConnection(port int, route string) {
+func whtestServerConnection(URL string, port int, route string) {
 	fmt.Print("Hello, trying to connect to whtest_server.\n")
-
-	URL := "ws://localhost:2000/whtest"
 
 	conn, _, err := websocket.DefaultDialer.Dial(URL, nil)
 	if err != nil {
@@ -85,10 +82,13 @@ func whtestServerConnection(port int, route string) {
 
 	fmt.Println("Successfully connected with whtest server")
 
-	// Start data handling
-	go DataHandler(conn, port, route)
-
 	// Call MessageTransfer function
 	fmt.Println("Calling MessageTransfer function")
 	MessageTransfer(conn)
+
+	if !subdomainReceived {
+		SubdomainHandler(conn, port, route)
+	} else {
+		DataTransferHandler(conn, port, route)
+	}
 }
