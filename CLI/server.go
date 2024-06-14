@@ -13,12 +13,12 @@ var num int
 
 func SetupRouter(port int, route string) {
 	fmt.Println("CLI has successfully connected with your local app")
-	fmt.Println("CLI is hosted at port :3000")
+	fmt.Println("Webhook tester is hosted at port :8000")
 
 	// Calls whtestServerConnection which attempts to connect to the online hosted
 	// server through websockets through which data is transferred between servers
 	go whtestServerConnection("ws://localhost:2000/whtest", port, route)
-	log.Fatal(http.ListenAndServe(":3000", nil))
+	log.Fatal(http.ListenAndServe(":8000", nil))
 }
 
 var subdomainReceived = false

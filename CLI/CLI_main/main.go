@@ -6,23 +6,33 @@ package main
 import (
 	"CLI"
 	"fmt"
+	"net/url"
+	"strconv"
+	"strings"
 )
 
 func main() {
-	fmt.Println("Welcome to webhook-tester CLI")
+	//fmt.Println("Welcome to webhook-tester CLI")
 
-	var port int
-	fmt.Print("Please enter the port at which your local app is hosted: ")
-	fmt.Scanf("%d", &port)
+	var URL string
+	fmt.Print("Please enter the address you would like to receive the webhook data:\n")
+	fmt.Print("Example: http://localhost:5000/requests\n\n")
+	fmt.Scanf("%d", &URL)
 
-	var route string
-	fmt.Print("Please enter the route at which you would like to receive data: ")
-	fmt.Print("Please enter the route without '/'")
-	fmt.Scanf("%s", &route)
+	u, err := url.Parse("http://localhost:5000/requests")
+	if err != nil {
+		panic(err)
+	}
 
-	// var webhook string
-	// fmt.Print("Please enter the webhook from which you would like to recieve data: ")
-	// fmt.Scanf("%s", &webhook)
+	hostParts := strings.Split(u.Host, ":")
+	port := hostParts[1]
 
-	CLI.SetupRouter(port, route)
+	path := u.Path
+
+	portInt, err := strconv.Atoi(port)
+	if err != nil {
+		panic(err)
+	}
+
+	CLI.SetupRouter(portInt, path)
 }
