@@ -1,15 +1,11 @@
 package localapp
 
 import (
-	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -33,100 +29,100 @@ func SetupRouter(db *sql.DB) {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
-	staticDir := "/home/pc1827/projects/website-hoster/local_app/static"
-	url := "http://localhost:3000/"
+	// staticDir := "/home/pc1827/projects/website-hoster/local_app/static"
+	// url := "http://localhost:3000/"
 
-	err := SendStaticFiles(staticDir, url)
-	if err != nil {
-		fmt.Println("Error:", err)
-	}
+	// err := SendStaticFiles(staticDir, url)
+	// if err != nil {
+	// 	fmt.Println("Error:", err)
+	// }
 	fmt.Println("Server listening on :5000")
 	http.ListenAndServe(":5000", nil)
 }
 
-// SendStaticFiles sends all files in the specified directory to the given URL using POST requests
-func SendStaticFiles(dirPath, url string) error {
-	fmt.Println("SendStaticFiles function is being called")
+// // SendStaticFiles sends all files in the specified directory to the given URL using POST requests
+// func SendStaticFiles(dirPath, url string) error {
+// 	fmt.Println("SendStaticFiles function is being called")
 
-	// Walk through all files in the directory
-	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
+// 	// Walk through all files in the directory
+// 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+// 		if err != nil {
+// 			return err
+// 		}
 
-		// Only process files, not directories
-		if !info.IsDir() {
-			err := sendFile(path, url)
-			if err != nil {
-				fmt.Printf("Error sending file %s: %v\n", path, err)
-			} else {
-				fmt.Printf("Successfully sent file %s\n", path)
-			}
-		}
-		return nil
-	})
+// 		// Only process files, not directories
+// 		if !info.IsDir() {
+// 			err := sendFile(path, url)
+// 			if err != nil {
+// 				fmt.Printf("Error sending file %s: %v\n", path, err)
+// 			} else {
+// 				fmt.Printf("Successfully sent file %s\n", path)
+// 			}
+// 		}
+// 		return nil
+// 	})
 
-	if err != nil {
-		return fmt.Errorf("error walking the directory: %v", err)
-	}
+// 	if err != nil {
+// 		return fmt.Errorf("error walking the directory: %v", err)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
-// sendFile sends a single file to the specified URL
-func sendFile(filePath, url string) error {
-	fmt.Printf("Sending file: %s\n", filePath)
+// // sendFile sends a single file to the specified URL
+// func sendFile(filePath, url string) error {
+// 	fmt.Printf("Sending file: %s\n", filePath)
 
-	file, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("error opening file: %v", err)
-	}
-	defer file.Close()
+// 	file, err := os.Open(filePath)
+// 	if err != nil {
+// 		return fmt.Errorf("error opening file: %v", err)
+// 	}
+// 	defer file.Close()
 
-	var requestBody bytes.Buffer
-	writer := multipart.NewWriter(&requestBody)
+// 	var requestBody bytes.Buffer
+// 	writer := multipart.NewWriter(&requestBody)
 
-	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
-	if err != nil {
-		return fmt.Errorf("error creating form file: %v", err)
-	}
+// 	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+// 	if err != nil {
+// 		return fmt.Errorf("error creating form file: %v", err)
+// 	}
 
-	_, err = io.Copy(part, file)
-	if err != nil {
-		return fmt.Errorf("error copying file content: %v", err)
-	}
+// 	_, err = io.Copy(part, file)
+// 	if err != nil {
+// 		return fmt.Errorf("error copying file content: %v", err)
+// 	}
 
-	err = writer.Close()
-	if err != nil {
-		return fmt.Errorf("error closing writer: %v", err)
-	}
+// 	err = writer.Close()
+// 	if err != nil {
+// 		return fmt.Errorf("error closing writer: %v", err)
+// 	}
 
-	req, err := http.NewRequest("POST", url, &requestBody)
-	if err != nil {
-		return fmt.Errorf("error creating request: %v", err)
-	}
+// 	req, err := http.NewRequest("POST", url, &requestBody)
+// 	if err != nil {
+// 		return fmt.Errorf("error creating request: %v", err)
+// 	}
 
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+// 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("error sending request: %v", err)
-	}
-	defer resp.Body.Close()
+// 	client := &http.Client{}
+// 	resp, err := client.Do(req)
+// 	if err != nil {
+// 		return fmt.Errorf("error sending request: %v", err)
+// 	}
+// 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %v", resp.StatusCode)
-	}
+// 	if resp.StatusCode != http.StatusOK {
+// 		return fmt.Errorf("unexpected status code: %v", resp.StatusCode)
+// 	}
 
-	responseBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("error reading response body: %v", err)
-	}
-	fmt.Println("Response:", string(responseBody))
+// 	responseBody, err := io.ReadAll(resp.Body)
+// 	if err != nil {
+// 		return fmt.Errorf("error reading response body: %v", err)
+// 	}
+// 	fmt.Println("Response:", string(responseBody))
 
-	return nil
-}
+// 	return nil
+// }
 
 // Fetches the data from the database and displays it in the browser for ease of development.
 func GetRequests(w http.ResponseWriter, db *sql.DB) {

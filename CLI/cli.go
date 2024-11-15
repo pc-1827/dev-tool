@@ -19,7 +19,7 @@ func DataTransferHandler(conn *websocket.Conn, port int, route string) {
 				return
 			}
 
-			localServerURL := "http://localhost:" + strconv.Itoa(port) + "/" + route
+			localServerURL := "http://localhost:" + strconv.Itoa(port) + route
 
 			resp, err := http.Post(localServerURL, "application/json", bytes.NewBuffer(body))
 			if err != nil {
