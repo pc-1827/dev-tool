@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -25,16 +26,26 @@ func SetupRouter() {
 func MessageAccepterHandler(conn *websocket.Conn) {
 	go func() {
 		for {
-			_, encodedMessage, err := conn.ReadMessage()
+			_, encodedMessageBytes, err := conn.ReadMessage()
 			if err != nil {
 				log.Println(err)
 				return
 			}
 
-			message := string(encodedMessage)
+			message := string(encodedMessageBytes)
 			fmt.Print("Received the encoded message.\n")
 
-			if message == "EncodedMessage" {
+			parts := strings.Split(message, ":")
+			if len(parts) != 2 {
+				fmt.Println("Invalid message format")
+				return
+			}
+			encodedMessage := parts[0]
+			number := parts[1]
+
+			if encodedMessage == "EncodedMessage" {
+				fmt.Println("Received number:", number)
+				// No further change needed in central server
 				SubdomainTransfer(conn)
 			}
 		}
