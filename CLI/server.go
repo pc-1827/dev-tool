@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/websocket"
 )
@@ -36,8 +37,8 @@ func SubdomainHandler(conn *websocket.Conn, port int, route string, number strin
 	} else {
 		conn.Close()
 		subdomainReceived = true
-		// go whtestServerConnection(string(subdomain), port, route)
-		go whtestServerConnection("ws://localhost:2001/subdomain", port, route, number)
+		go whtestServerConnection(string(subdomain), port, route, number)
+		// go whtestServerConnection("ws://localhost:2001/subdomain", port, route, number)
 
 		localServerURL := "http://localhost:" + strconv.Itoa(port) + route
 
@@ -78,6 +79,11 @@ func MessageTransfer(conn *websocket.Conn, number string) {
 
 func whtestServerConnection(URL string, port int, route string, number string) {
 	fmt.Print("Hello, trying to connect to whtest_server.\n")
+
+	// Ensure the URL has the correct scheme
+	if !strings.HasPrefix(URL, "ws://") && !strings.HasPrefix(URL, "wss://") {
+		URL = "ws://" + URL
+	}
 
 	conn, _, err := websocket.DefaultDialer.Dial(URL, nil)
 	if err != nil {
