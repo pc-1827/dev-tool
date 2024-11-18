@@ -26,23 +26,24 @@ var subdomainReceived = false
 
 func SubdomainHandler(conn *websocket.Conn, port int, route string, number string) {
 	fmt.Print("Attempting to receive Subdomain.\n")
-	_, subdomain, err := conn.ReadMessage()
+	_, addressBytes, err := conn.ReadMessage()
 	if err != nil {
-		fmt.Println("Error receiving Subdomain:", err)
+		fmt.Println("Error receiving service address:", err)
 		return
 	}
 
-	if string(subdomain) == "None" {
-		fmt.Println("No subdomain available")
+	serviceAddress := string(addressBytes)
+
+	if serviceAddress == "None" {
+		fmt.Println("No service address received")
 	} else {
 		conn.Close()
 		subdomainReceived = true
-		go whtestServerConnection(string(subdomain), port, route, number)
-		// go whtestServerConnection("ws://localhost:2001/subdomain", port, route, number)
+		go whtestServerConnection(serviceAddress, port, route, number)
 
 		localServerURL := "http://localhost:" + strconv.Itoa(port) + route
 
-		fmt.Printf("WebSocket traffic will be transferred from %s ---> %s\n", subdomain, localServerURL)
+		fmt.Printf("WebSocket traffic will be transferred from %s ---> %s\n", serviceAddress, localServerURL)
 	}
 
 }

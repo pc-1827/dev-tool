@@ -6,9 +6,9 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 	appsv1 "k8s.io/api/apps/v1"
@@ -65,8 +65,11 @@ func MessageAccepterHandler(conn *websocket.Conn) {
 func SubdomainTransfer(conn *websocket.Conn) {
 	fmt.Print("Starting dynamic provisioning of peripheral server.\n")
 
+	// Generate a unique identifier for the user
+	userID := fmt.Sprintf("%d", time.Now().UnixNano())
+
 	// Deploy peripheral server to Kubernetes and get the service address
-	serviceAddress, err := DeployPeripheralServer()
+	serviceAddress, err := DeployPeripheralServer(userID)
 	if err != nil {
 		log.Println("Error deploying peripheral server:", err)
 		if err := conn.WriteMessage(websocket.TextMessage, []byte("None")); err != nil {
@@ -80,9 +83,12 @@ func SubdomainTransfer(conn *websocket.Conn) {
 		log.Println("Error sending service address to the CLI:", err)
 		return
 	}
+
+	// Start a timer to delete the user's resources after 1 hour
+	go StartCleanupTimer(userID)
 }
 
-func DeployPeripheralServer() (string, error) {
+func DeployPeripheralServer(userID string) (string, error) {
 	var config *rest.Config
 	var err error
 
@@ -106,33 +112,36 @@ func DeployPeripheralServer() (string, error) {
 	// Define the namespace to deploy to
 	namespace := "default"
 
-	// Create a unique name for the deployment and service
-	deploymentName := "peripheral-server-deployment"
-	serviceName := "peripheral-server-service"
+	// Create unique names for the deployment and service using userID
+	deploymentName := "peripheral-server-deployment-" + userID
+	serviceName := "peripheral-server-service-" + userID
+
+	// Define labels to identify resources belonging to this user
+	labels := map[string]string{
+		"app":    "peripheral-server",
+		"userID": userID,
+	}
 
 	// Define the deployment
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: deploymentName,
+			Name:   deploymentName,
+			Labels: labels,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: int32Ptr(1),
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"app": "peripheral-server",
-				},
+				MatchLabels: labels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						"app": "peripheral-server",
-					},
+					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
 							Name:  "peripheral-server",
-							Image: "peripheral_server:latest", // Ensure this image is available in the cluster
+							Image: "pc1827/peripheral-server:latest", // Ensure this image is available in the cluster
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 2001,
@@ -145,116 +154,111 @@ func DeployPeripheralServer() (string, error) {
 		},
 	}
 
+	// Create the deployment
 	deploymentsClient := clientset.AppsV1().Deployments(namespace)
-	_, err = deploymentsClient.Get(context.TODO(), deploymentName, metav1.GetOptions{})
+	fmt.Println("Creating deployment for user:", userID)
+	_, err = deploymentsClient.Create(context.TODO(), deployment, metav1.CreateOptions{})
 	if err != nil {
-		fmt.Println("Creating deployment...")
-		_, err = deploymentsClient.Create(context.TODO(), deployment, metav1.CreateOptions{})
-		if err != nil {
-			return "", fmt.Errorf("failed to create deployment: %v", err)
-		}
-	} else {
-		fmt.Println("Deployment already exists.")
+		return "", fmt.Errorf("failed to create deployment: %v", err)
 	}
 
 	// Define the service
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: serviceName,
+			Name:   serviceName,
+			Labels: labels,
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{
-				"app": "peripheral-server",
-			},
+			Selector: labels,
 			Ports: []corev1.ServicePort{
 				{
 					Protocol:   corev1.ProtocolTCP,
 					Port:       2001,
 					TargetPort: intstr.FromInt(2001),
+					// Optionally assign a static NodePort
+					// NodePort:   30000 + (user-specific offset),
 				},
 			},
 			Type: corev1.ServiceTypeNodePort, // Use NodePort to expose the service
 		},
 	}
 
+	// Create the service
 	servicesClient := clientset.CoreV1().Services(namespace)
-	svc, err := servicesClient.Get(context.TODO(), serviceName, metav1.GetOptions{})
+	fmt.Println("Creating service for user:", userID)
+	svc, err := servicesClient.Create(context.TODO(), service, metav1.CreateOptions{})
 	if err != nil {
-		fmt.Println("Creating service...")
-		svc, err = servicesClient.Create(context.TODO(), service, metav1.CreateOptions{})
-		if err != nil {
-			return "", fmt.Errorf("failed to create service: %v", err)
-		}
-	} else {
-		fmt.Println("Service already exists.")
+		return "", fmt.Errorf("failed to create service: %v", err)
 	}
 
 	// Get the NodePort assigned
 	nodePort := svc.Spec.Ports[0].NodePort
 
-	// Get the node IP address
-	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
-	if err != nil || len(nodes.Items) == 0 {
-		return "", fmt.Errorf("failed to get node information: %v", err)
-	}
-
-	// For Minikube, get the IP from minikube
-	nodeIP, err := getMinikubeIP()
-	if err != nil {
-		return "", fmt.Errorf("failed to get Minikube IP: %v", err)
-	}
-
-	serviceAddress := fmt.Sprintf("%s:%d", nodeIP, nodePort)
+	// Use localhost since Minikube maps NodePorts to localhost
+	serviceAddress := fmt.Sprintf("localhost:%d", nodePort)
 	fmt.Println("Peripheral server is accessible at:", serviceAddress)
 
 	return serviceAddress, nil
 }
 
-func getMinikubeIP() (string, error) {
-	cmd := exec.Command("minikube", "ip")
-	out, err := cmd.Output()
+func StartCleanupTimer(userID string) {
+	// Wait for 1 hour
+	time.Sleep(5 * time.Minute)
+
+	// Cleanup resources
+	err := CleanupUserResources(userID)
 	if err != nil {
-		return "", err
+		log.Println("Error cleaning up resources for user", userID+":", err)
+	} else {
+		log.Println("Successfully cleaned up resources for user", userID)
 	}
-	return strings.TrimSpace(string(out)), nil
+}
+
+func CleanupUserResources(userID string) error {
+	var config *rest.Config
+	var err error
+
+	// Try in-cluster config
+	config, err = rest.InClusterConfig()
+	if err != nil {
+		// If in-cluster config fails, fallback to kubeconfig
+		kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if err != nil {
+			return fmt.Errorf("failed to create Kubernetes config: %v", err)
+		}
+	}
+
+	// Create the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create Kubernetes client: %v", err)
+	}
+
+	namespace := "default"
+
+	// Names of the resources
+	deploymentName := "peripheral-server-deployment-" + userID
+	serviceName := "peripheral-server-service-" + userID
+
+	// Delete the deployment
+	deploymentsClient := clientset.AppsV1().Deployments(namespace)
+	fmt.Println("Deleting deployment for user:", userID)
+	err = deploymentsClient.Delete(context.TODO(), deploymentName, metav1.DeleteOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to delete deployment: %v", err)
+	}
+
+	// Delete the service
+	servicesClient := clientset.CoreV1().Services(namespace)
+	fmt.Println("Deleting service for user:", userID)
+	err = servicesClient.Delete(context.TODO(), serviceName, metav1.DeleteOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to delete service: %v", err)
+	}
+
+	return nil
 }
 
 // Helper functions
 func int32Ptr(i int32) *int32 { return &i }
-
-func intstrPtr(i int32) intstr.IntOrString {
-	return intstr.IntOrString{Type: intstr.Int, IntVal: i}
-}
-
-// var subdomainTimers = make(map[string]*time.Timer)
-
-// func SubdomainAvailabilityChecker() string {
-// 	subdomains := []string{"subdomain1.whtest.com", "subdomain2.whtest.com", "subdomain3.whtest.com"}
-
-// 	for _, subdomain := range subdomains {
-// 		timer, exists := subdomainTimers[subdomain]
-
-// 		// If the timer for this subdomain doesn't exist or has expired, start a new one
-// 		if !exists || timer == nil {
-// 			// Timer either doesn't exist or has expired, so create a new one
-// 			subdomainTimers[subdomain] = time.AfterFunc(1*time.Hour, func() {
-// 				delete(subdomainTimers, subdomain)
-// 			})
-
-// 			return subdomain
-// 		}
-// 	}
-
-// 	// If all subdomains are in use, return "None"
-// 	return "None"
-// }
-
-// func SubdomainTransfer(conn *websocket.Conn) {
-// 	fmt.Print("Subdomain is being transferred.\n")
-// 	subdomain := SubdomainAvailabilityChecker()
-
-// 	if err := conn.WriteMessage(websocket.TextMessage, []byte(subdomain)); err != nil {
-// 		log.Println("Error sending subdomain to the CLI", err)
-// 		return
-// 	}
-// }
