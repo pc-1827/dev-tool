@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	dnsapi "google.golang.org/api/dns/v1"
+	"google.golang.org/api/option"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -72,7 +74,7 @@ func GenerateRandomString(n int) string {
 	for i := range b {
 		b[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
-	return string(b)
+	return strings.ToLower(string(b))
 }
 
 // SubdomainTransfer handles the provisioning of resources and communication with the CLI.
@@ -94,6 +96,14 @@ func SubdomainTransfer(conn *websocket.Conn) {
 	err = DeployPeripheralServer(subdomain)
 	if err != nil {
 		log.Println("Error deploying peripheral server:", err)
+		conn.WriteMessage(websocket.TextMessage, []byte("None"))
+		return
+	}
+
+	// Create DNS record
+	err = CreateDNSRecord(subdomain, ingressIP)
+	if err != nil {
+		log.Println("Error creating DNS record:", err)
 		conn.WriteMessage(websocket.TextMessage, []byte("None"))
 		return
 	}
@@ -279,6 +289,70 @@ func GetIngressControllerIP() (string, error) {
 	return ip, nil
 }
 
+// CreateDNSRecord creates a DNS A record for the subdomain pointing to the ingress IP.
+func CreateDNSRecord(subdomain, ipAddress string) error {
+	ctx := context.Background()
+	dnsService, err := dnsapi.NewService(ctx, option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")))
+	if err != nil {
+		return fmt.Errorf("failed to create DNS service: %v", err)
+	}
+
+	managedZone := "pc-1827-zone"      // Replace with your managed zone name
+	projectID := "your-gcp-project-id" // Replace with your GCP project ID
+	fullyQualifiedDomainName := subdomain + ".pc-1827.online"
+
+	rrset := &dnsapi.ResourceRecordSet{
+		Name:    fullyQualifiedDomainName + ".",
+		Type:    "A",
+		Ttl:     300,
+		Rrdatas: []string{ipAddress},
+	}
+
+	change := &dnsapi.Change{
+		Additions: []*dnsapi.ResourceRecordSet{rrset},
+	}
+
+	_, err = dnsService.Changes.Create(projectID, managedZone, change).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("failed to create DNS record: %v", err)
+	}
+
+	fmt.Println("DNS record created for subdomain:", fullyQualifiedDomainName)
+	return nil
+}
+
+// DeleteDNSRecord deletes the DNS A record for the subdomain.
+func DeleteDNSRecord(subdomain, ipAddress string) error {
+	ctx := context.Background()
+	dnsService, err := dnsapi.NewService(ctx, option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")))
+	if err != nil {
+		return fmt.Errorf("failed to create DNS service: %v", err)
+	}
+
+	managedZone := "pc-1827-zone"      // Replace with your managed zone name
+	projectID := "your-gcp-project-id" // Replace with your GCP project ID
+	fullyQualifiedDomainName := subdomain + ".pc-1827.online"
+
+	rrset := &dnsapi.ResourceRecordSet{
+		Name:    fullyQualifiedDomainName + ".",
+		Type:    "A",
+		Ttl:     300,
+		Rrdatas: []string{ipAddress},
+	}
+
+	change := &dnsapi.Change{
+		Deletions: []*dnsapi.ResourceRecordSet{rrset},
+	}
+
+	_, err = dnsService.Changes.Create(projectID, managedZone, change).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("failed to delete DNS record: %v", err)
+	}
+
+	fmt.Println("DNS record deleted for subdomain:", fullyQualifiedDomainName)
+	return nil
+}
+
 // StartCleanupTimer starts a timer to clean up resources after the specified duration.
 func StartCleanupTimer(subdomain, ingressIP string) {
 	// Wait for 1 hour
@@ -293,7 +367,7 @@ func StartCleanupTimer(subdomain, ingressIP string) {
 	}
 }
 
-// CleanupUserResources deletes the Deployment, Service and Ingress for the subdomain.
+// CleanupUserResources deletes the Deployment, Service, Ingress, and DNS record for the subdomain.
 func CleanupUserResources(subdomain, ingressIP string) error {
 	clientset, err := getKubernetesClient()
 	if err != nil {
@@ -328,6 +402,12 @@ func CleanupUserResources(subdomain, ingressIP string) error {
 	err = ingressClient.Delete(context.TODO(), ingressName, metav1.DeleteOptions{})
 	if err != nil {
 		log.Println("Failed to delete ingress:", err)
+	}
+
+	// Delete the DNS record
+	err = DeleteDNSRecord(subdomain, ingressIP)
+	if err != nil {
+		log.Println("Error deleting DNS record for", subdomain+":", err)
 	}
 
 	return nil
