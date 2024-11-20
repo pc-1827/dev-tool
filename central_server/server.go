@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
@@ -20,6 +22,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// SetupRouter sets up the HTTP handler for WebSocket connections.
 func SetupRouter() {
 	http.HandleFunc("/whtest", func(w http.ResponseWriter, r *http.Request) {
 		websocket, err := upgrader.Upgrade(w, r, nil)
@@ -27,12 +30,11 @@ func SetupRouter() {
 			log.Println(err)
 			return
 		}
-		setWebSocketConnection(websocket)
 		MessageAccepterHandler(websocket)
 	})
 }
 
-// Handles receiving the webhook from the CLI
+// MessageAccepterHandler handles incoming messages from the CLI over WebSocket.
 func MessageAccepterHandler(conn *websocket.Conn) {
 	go func() {
 		for {
@@ -55,74 +57,77 @@ func MessageAccepterHandler(conn *websocket.Conn) {
 
 			if encodedMessage == "EncodedMessage" {
 				fmt.Println("Received number:", number)
-				// No further change needed in central server
 				SubdomainTransfer(conn)
 			}
 		}
 	}()
 }
 
+const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+// GenerateRandomString generates a random alphanumeric string of length n.
+func GenerateRandomString(n int) string {
+	rand.Seed(time.Now().UnixNano())
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+	}
+	return string(b)
+}
+
+// SubdomainTransfer handles the provisioning of resources and communication with the CLI.
 func SubdomainTransfer(conn *websocket.Conn) {
 	fmt.Print("Starting dynamic provisioning of peripheral server.\n")
 
-	// Generate a unique identifier for the user
-	userID := fmt.Sprintf("%d", time.Now().UnixNano())
+	// Generate a random 10-character alphanumeric string
+	subdomain := GenerateRandomString(10)
 
-	// Deploy peripheral server to Kubernetes and get the service address
-	serviceAddress, err := DeployPeripheralServer(userID)
+	// Obtain the Ingress Controller's external IP
+	ingressIP, err := GetIngressControllerIP()
 	if err != nil {
-		log.Println("Error deploying peripheral server:", err)
-		if err := conn.WriteMessage(websocket.TextMessage, []byte("None")); err != nil {
-			log.Println("Error sending error message to the CLI:", err)
-		}
+		log.Println("Error getting Ingress Controller IP:", err)
+		conn.WriteMessage(websocket.TextMessage, []byte("None"))
 		return
 	}
 
-	// Send the service address to the CLI
-	if err := conn.WriteMessage(websocket.TextMessage, []byte(serviceAddress)); err != nil {
-		log.Println("Error sending service address to the CLI:", err)
+	// Deploy peripheral server to Kubernetes and create Ingress
+	err = DeployPeripheralServer(subdomain)
+	if err != nil {
+		log.Println("Error deploying peripheral server:", err)
+		conn.WriteMessage(websocket.TextMessage, []byte("None"))
+		return
+	}
+
+	// Send the subdomain to the CLI
+	hostName := subdomain + ".pc-1827.online"
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(hostName)); err != nil {
+		log.Println("Error sending subdomain to the CLI:", err)
 		return
 	}
 
 	// Start a timer to delete the user's resources after 1 hour
-	go StartCleanupTimer(userID)
+	go StartCleanupTimer(subdomain, ingressIP)
 }
 
-func DeployPeripheralServer(userID string) (string, error) {
-	var config *rest.Config
-	var err error
-
-	// Try in-cluster config
-	config, err = rest.InClusterConfig()
+// DeployPeripheralServer creates a Deployment, Service, and Ingress for the subdomain.
+func DeployPeripheralServer(subdomain string) error {
+	// Get Kubernetes client
+	clientset, err := getKubernetesClient()
 	if err != nil {
-		// If in-cluster config fails, fallback to kubeconfig
-		kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
-		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-		if err != nil {
-			return "", fmt.Errorf("failed to create Kubernetes config: %v", err)
-		}
+		return err
 	}
 
-	// Create the clientset
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return "", fmt.Errorf("failed to create Kubernetes client: %v", err)
-	}
-
-	// Define the namespace to deploy to
 	namespace := "default"
 
-	// Create unique names for the deployment and service using userID
-	deploymentName := "peripheral-server-deployment-" + userID
-	serviceName := "peripheral-server-service-" + userID
+	deploymentName := "peripheral-server-deployment-" + subdomain
+	serviceName := "peripheral-server-service-" + subdomain
 
-	// Define labels to identify resources belonging to this user
 	labels := map[string]string{
-		"app":    "peripheral-server",
-		"userID": userID,
+		"app":       "peripheral-server",
+		"subdomain": subdomain,
 	}
 
-	// Define the deployment
+	// Define the Deployment
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   deploymentName,
@@ -141,7 +146,7 @@ func DeployPeripheralServer(userID string) (string, error) {
 					Containers: []corev1.Container{
 						{
 							Name:  "peripheral-server",
-							Image: "pc1827/peripheral-server:latest", // Ensure this image is available in the cluster
+							Image: "gcr.io/your-gcp-project-id/peripheral-server:latest", // Update to your image
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 2001,
@@ -154,15 +159,15 @@ func DeployPeripheralServer(userID string) (string, error) {
 		},
 	}
 
-	// Create the deployment
+	// Create the Deployment
 	deploymentsClient := clientset.AppsV1().Deployments(namespace)
-	fmt.Println("Creating deployment for user:", userID)
+	fmt.Println("Creating deployment for subdomain:", subdomain)
 	_, err = deploymentsClient.Create(context.TODO(), deployment, metav1.CreateOptions{})
 	if err != nil {
-		return "", fmt.Errorf("failed to create deployment: %v", err)
+		return fmt.Errorf("failed to create deployment: %v", err)
 	}
 
-	// Define the service
+	// Define the Service (Type ClusterIP)
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   serviceName,
@@ -173,92 +178,179 @@ func DeployPeripheralServer(userID string) (string, error) {
 			Ports: []corev1.ServicePort{
 				{
 					Protocol:   corev1.ProtocolTCP,
-					Port:       2001,
-					TargetPort: intstr.FromInt(2001),
-					// Optionally assign a static NodePort
-					// NodePort:   30000 + (user-specific offset),
+					Port:       80,                   // Port exposed by the Service
+					TargetPort: intstr.FromInt(2001), // Port your application listens on
 				},
 			},
-			Type: corev1.ServiceTypeNodePort, // Use NodePort to expose the service
+			Type: corev1.ServiceTypeClusterIP,
 		},
 	}
 
-	// Create the service
+	// Create the Service
 	servicesClient := clientset.CoreV1().Services(namespace)
-	fmt.Println("Creating service for user:", userID)
-	svc, err := servicesClient.Create(context.TODO(), service, metav1.CreateOptions{})
+	fmt.Println("Creating service for subdomain:", subdomain)
+	_, err = servicesClient.Create(context.TODO(), service, metav1.CreateOptions{})
 	if err != nil {
-		return "", fmt.Errorf("failed to create service: %v", err)
+		return fmt.Errorf("failed to create service: %v", err)
 	}
 
-	// Get the NodePort assigned
-	nodePort := svc.Spec.Ports[0].NodePort
-
-	// Use localhost since Minikube maps NodePorts to localhost
-	serviceAddress := fmt.Sprintf("localhost:%d", nodePort)
-	fmt.Println("Peripheral server is accessible at:", serviceAddress)
-
-	return serviceAddress, nil
-}
-
-func StartCleanupTimer(userID string) {
-	// Wait for 1 hour
-	time.Sleep(5 * time.Minute)
-
-	// Cleanup resources
-	err := CleanupUserResources(userID)
+	// Create the Ingress resource
+	err = CreateIngress(subdomain, serviceName, labels)
 	if err != nil {
-		log.Println("Error cleaning up resources for user", userID+":", err)
-	} else {
-		log.Println("Successfully cleaned up resources for user", userID)
-	}
-}
-
-func CleanupUserResources(userID string) error {
-	var config *rest.Config
-	var err error
-
-	// Try in-cluster config
-	config, err = rest.InClusterConfig()
-	if err != nil {
-		// If in-cluster config fails, fallback to kubeconfig
-		kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
-		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-		if err != nil {
-			return fmt.Errorf("failed to create Kubernetes config: %v", err)
-		}
-	}
-
-	// Create the clientset
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("failed to create Kubernetes client: %v", err)
-	}
-
-	namespace := "default"
-
-	// Names of the resources
-	deploymentName := "peripheral-server-deployment-" + userID
-	serviceName := "peripheral-server-service-" + userID
-
-	// Delete the deployment
-	deploymentsClient := clientset.AppsV1().Deployments(namespace)
-	fmt.Println("Deleting deployment for user:", userID)
-	err = deploymentsClient.Delete(context.TODO(), deploymentName, metav1.DeleteOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to delete deployment: %v", err)
-	}
-
-	// Delete the service
-	servicesClient := clientset.CoreV1().Services(namespace)
-	fmt.Println("Deleting service for user:", userID)
-	err = servicesClient.Delete(context.TODO(), serviceName, metav1.DeleteOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to delete service: %v", err)
+		return fmt.Errorf("failed to create ingress: %v", err)
 	}
 
 	return nil
 }
 
-// Helper functions
+// CreateIngress creates an Ingress resource to route traffic from the subdomain to the service.
+func CreateIngress(subdomain, serviceName string, labels map[string]string) error {
+	clientset, err := getKubernetesClient()
+	if err != nil {
+		return err
+	}
+
+	namespace := "default"
+
+	ingressName := "peripheral-server-ingress-" + subdomain
+	hostName := subdomain + ".pc-1827.online"
+
+	ingressClient := clientset.NetworkingV1().Ingresses(namespace)
+
+	pathType := networkingv1.PathTypePrefix
+
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   ingressName,
+			Labels: labels,
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: hostName,
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{
+								{
+									Path:     "/",
+									PathType: &pathType,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: serviceName,
+											Port: networkingv1.ServiceBackendPort{
+												Number: 80,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	fmt.Println("Creating ingress for subdomain:", subdomain)
+	_, err = ingressClient.Create(context.TODO(), ingress, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// GetIngressControllerIP retrieves the external IP address of the Ingress controller.
+func GetIngressControllerIP() (string, error) {
+	clientset, err := getKubernetesClient()
+	if err != nil {
+		return "", err
+	}
+
+	// Adjust the namespace and service name according to your deployment
+	svc, err := clientset.CoreV1().Services("ingress-nginx").Get(context.TODO(), "ingress-nginx-controller", metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get Ingress controller service: %v", err)
+	}
+	if len(svc.Status.LoadBalancer.Ingress) == 0 {
+		return "", fmt.Errorf("ingress controller external IP not available yet")
+	}
+	ip := svc.Status.LoadBalancer.Ingress[0].IP
+	return ip, nil
+}
+
+// StartCleanupTimer starts a timer to clean up resources after the specified duration.
+func StartCleanupTimer(subdomain, ingressIP string) {
+	// Wait for 1 hour
+	time.Sleep(1 * time.Hour)
+
+	// Cleanup resources
+	err := CleanupUserResources(subdomain, ingressIP)
+	if err != nil {
+		log.Println("Error cleaning up resources for subdomain", subdomain+":", err)
+	} else {
+		log.Println("Successfully cleaned up resources for subdomain", subdomain)
+	}
+}
+
+// CleanupUserResources deletes the Deployment, Service and Ingress for the subdomain.
+func CleanupUserResources(subdomain, ingressIP string) error {
+	clientset, err := getKubernetesClient()
+	if err != nil {
+		return err
+	}
+
+	namespace := "default"
+
+	deploymentName := "peripheral-server-deployment-" + subdomain
+	serviceName := "peripheral-server-service-" + subdomain
+	ingressName := "peripheral-server-ingress-" + subdomain
+
+	// Delete the Deployment
+	deploymentsClient := clientset.AppsV1().Deployments(namespace)
+	fmt.Println("Deleting deployment for subdomain:", subdomain)
+	err = deploymentsClient.Delete(context.TODO(), deploymentName, metav1.DeleteOptions{})
+	if err != nil {
+		log.Println("Failed to delete deployment:", err)
+	}
+
+	// Delete the Service
+	servicesClient := clientset.CoreV1().Services(namespace)
+	fmt.Println("Deleting service for subdomain:", subdomain)
+	err = servicesClient.Delete(context.TODO(), serviceName, metav1.DeleteOptions{})
+	if err != nil {
+		log.Println("Failed to delete service:", err)
+	}
+
+	// Delete the Ingress
+	ingressClient := clientset.NetworkingV1().Ingresses(namespace)
+	fmt.Println("Deleting ingress for subdomain:", subdomain)
+	err = ingressClient.Delete(context.TODO(), ingressName, metav1.DeleteOptions{})
+	if err != nil {
+		log.Println("Failed to delete ingress:", err)
+	}
+
+	return nil
+}
+
+// Helper function to get a Kubernetes clientset.
+func getKubernetesClient() (*kubernetes.Clientset, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		// Fallback to kubeconfig if not running inside a cluster
+		kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Kubernetes config: %v", err)
+		}
+	}
+	// Create the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Kubernetes client: %v", err)
+	}
+	return clientset, nil
+}
+
+// int32Ptr returns a pointer to an int32.
 func int32Ptr(i int32) *int32 { return &i }
