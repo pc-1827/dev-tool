@@ -45,7 +45,6 @@ func SubdomainHandler(conn *websocket.Conn, port int, route string, number strin
 
 		fmt.Printf("WebSocket traffic will be transferred from %s ---> %s\n", serviceAddress, localServerURL)
 	}
-
 }
 
 // After successfully establishing a websocket connection between CLI and server hosted

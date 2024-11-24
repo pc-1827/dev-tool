@@ -4,24 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
-	dnsapi "google.golang.org/api/dns/v1"
-	"google.golang.org/api/option"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 // SetupRouter sets up the HTTP handler for WebSocket connections.
@@ -63,18 +55,6 @@ func MessageAccepterHandler(conn *websocket.Conn) {
 			}
 		}
 	}()
-}
-
-const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-// GenerateRandomString generates a random alphanumeric string of length n.
-func GenerateRandomString(n int) string {
-	rand.Seed(time.Now().UnixNano())
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))]
-	}
-	return strings.ToLower(string(b))
 }
 
 // SubdomainTransfer handles the provisioning of resources and communication with the CLI.
@@ -270,89 +250,6 @@ func CreateIngress(subdomain, serviceName string, labels map[string]string) erro
 	return nil
 }
 
-// GetIngressControllerIP retrieves the external IP address of the Ingress controller.
-func GetIngressControllerIP() (string, error) {
-	clientset, err := getKubernetesClient()
-	if err != nil {
-		return "", err
-	}
-
-	// Adjust the namespace and service name according to your deployment
-	svc, err := clientset.CoreV1().Services("ingress-nginx").Get(context.TODO(), "ingress-nginx-controller", metav1.GetOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to get Ingress controller service: %v", err)
-	}
-	if len(svc.Status.LoadBalancer.Ingress) == 0 {
-		return "", fmt.Errorf("ingress controller external IP not available yet")
-	}
-	ip := svc.Status.LoadBalancer.Ingress[0].IP
-	return ip, nil
-}
-
-// CreateDNSRecord creates a DNS A record for the subdomain pointing to the ingress IP.
-func CreateDNSRecord(subdomain, ipAddress string) error {
-	ctx := context.Background()
-	dnsService, err := dnsapi.NewService(ctx, option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")))
-	if err != nil {
-		return fmt.Errorf("failed to create DNS service: %v", err)
-	}
-
-	managedZone := "pc-1827-zone"      // Replace with your managed zone name
-	projectID := "your-gcp-project-id" // Replace with your GCP project ID
-	fullyQualifiedDomainName := subdomain + ".pc-1827.online"
-
-	rrset := &dnsapi.ResourceRecordSet{
-		Name:    fullyQualifiedDomainName + ".",
-		Type:    "A",
-		Ttl:     300,
-		Rrdatas: []string{ipAddress},
-	}
-
-	change := &dnsapi.Change{
-		Additions: []*dnsapi.ResourceRecordSet{rrset},
-	}
-
-	_, err = dnsService.Changes.Create(projectID, managedZone, change).Context(ctx).Do()
-	if err != nil {
-		return fmt.Errorf("failed to create DNS record: %v", err)
-	}
-
-	fmt.Println("DNS record created for subdomain:", fullyQualifiedDomainName)
-	return nil
-}
-
-// DeleteDNSRecord deletes the DNS A record for the subdomain.
-func DeleteDNSRecord(subdomain, ipAddress string) error {
-	ctx := context.Background()
-	dnsService, err := dnsapi.NewService(ctx, option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")))
-	if err != nil {
-		return fmt.Errorf("failed to create DNS service: %v", err)
-	}
-
-	managedZone := "pc-1827-zone"      // Replace with your managed zone name
-	projectID := "your-gcp-project-id" // Replace with your GCP project ID
-	fullyQualifiedDomainName := subdomain + ".pc-1827.online"
-
-	rrset := &dnsapi.ResourceRecordSet{
-		Name:    fullyQualifiedDomainName + ".",
-		Type:    "A",
-		Ttl:     300,
-		Rrdatas: []string{ipAddress},
-	}
-
-	change := &dnsapi.Change{
-		Deletions: []*dnsapi.ResourceRecordSet{rrset},
-	}
-
-	_, err = dnsService.Changes.Create(projectID, managedZone, change).Context(ctx).Do()
-	if err != nil {
-		return fmt.Errorf("failed to delete DNS record: %v", err)
-	}
-
-	fmt.Println("DNS record deleted for subdomain:", fullyQualifiedDomainName)
-	return nil
-}
-
 // StartCleanupTimer starts a timer to clean up resources after the specified duration.
 func StartCleanupTimer(subdomain, ingressIP string) {
 	// Wait for 1 hour
@@ -412,25 +309,3 @@ func CleanupUserResources(subdomain, ingressIP string) error {
 
 	return nil
 }
-
-// Helper function to get a Kubernetes clientset.
-func getKubernetesClient() (*kubernetes.Clientset, error) {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		// Fallback to kubeconfig if not running inside a cluster
-		kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
-		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create Kubernetes config: %v", err)
-		}
-	}
-	// Create the clientset
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Kubernetes client: %v", err)
-	}
-	return clientset, nil
-}
-
-// int32Ptr returns a pointer to an int32.
-func int32Ptr(i int32) *int32 { return &i }
