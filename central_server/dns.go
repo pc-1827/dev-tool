@@ -1,74 +1,87 @@
+// dns.go
 package central
 
 import (
 	"context"
 	"fmt"
-	"os"
 
-	dnsapi "google.golang.org/api/dns/v1"
-	"google.golang.org/api/option"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/dns/armdns"
 )
 
-// CreateDNSRecord creates a DNS A record for the subdomain pointing to the ingress IP.
 func CreateDNSRecord(subdomain, ipAddress string) error {
 	ctx := context.Background()
-	dnsService, err := dnsapi.NewService(ctx, option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")))
+	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
-		return fmt.Errorf("failed to create DNS service: %v", err)
+		return fmt.Errorf("failed to obtain a credential: %v", err)
 	}
 
-	managedZone := "pc-1827-zone"      // Replace with your managed zone name
-	projectID := "your-gcp-project-id" // Replace with your GCP project ID
-	fullyQualifiedDomainName := subdomain + ".pc-1827.online"
-
-	rrset := &dnsapi.ResourceRecordSet{
-		Name:    fullyQualifiedDomainName + ".",
-		Type:    "A",
-		Ttl:     300,
-		Rrdatas: []string{ipAddress},
+	dnsClient, err := armdns.NewRecordSetsClient("<subscription-id>", cred, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create DNS client: %v", err)
 	}
 
-	change := &dnsapi.Change{
-		Additions: []*dnsapi.ResourceRecordSet{rrset},
+	resourceGroupName := "<your-resource-group>"
+	zoneName := "<your-domain>"
+	recordSetName := subdomain
+	ttl := int64(300)
+
+	parameters := armdns.RecordSet{
+		Properties: &armdns.RecordSetProperties{
+			TTL: &ttl,
+			ARecords: []*armdns.ARecord{
+				{
+					IPv4Address: &ipAddress,
+				},
+			},
+		},
 	}
 
-	_, err = dnsService.Changes.Create(projectID, managedZone, change).Context(ctx).Do()
+	_, err = dnsClient.CreateOrUpdate(
+		ctx,
+		resourceGroupName,
+		zoneName,
+		recordSetName,
+		armdns.RecordTypeA,
+		parameters,
+		nil,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create DNS record: %v", err)
 	}
 
-	fmt.Println("DNS record created for subdomain:", fullyQualifiedDomainName)
+	fmt.Println("DNS record created for subdomain:", subdomain)
 	return nil
 }
 
-// DeleteDNSRecord deletes the DNS A record for the subdomain.
-func DeleteDNSRecord(subdomain, ipAddress string) error {
+func DeleteDNSRecord(subdomain string) error {
 	ctx := context.Background()
-	dnsService, err := dnsapi.NewService(ctx, option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")))
+	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
-		return fmt.Errorf("failed to create DNS service: %v", err)
+		return fmt.Errorf("failed to obtain a credential: %v", err)
 	}
 
-	managedZone := "pc-1827-zone"      // Replace with your managed zone name
-	projectID := "your-gcp-project-id" // Replace with your GCP project ID
-	fullyQualifiedDomainName := subdomain + ".pc-1827.online"
-
-	rrset := &dnsapi.ResourceRecordSet{
-		Name:    fullyQualifiedDomainName + ".",
-		Type:    "A",
-		Ttl:     300,
-		Rrdatas: []string{ipAddress},
+	dnsClient, err := armdns.NewRecordSetsClient("<subscription-id>", cred, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create DNS client: %v", err)
 	}
 
-	change := &dnsapi.Change{
-		Deletions: []*dnsapi.ResourceRecordSet{rrset},
-	}
+	resourceGroupName := "<your-resource-group>"
+	zoneName := "<your-domain>"
+	recordSetName := subdomain
 
-	_, err = dnsService.Changes.Create(projectID, managedZone, change).Context(ctx).Do()
+	_, err = dnsClient.Delete(
+		ctx,
+		resourceGroupName,
+		zoneName,
+		recordSetName,
+		armdns.RecordTypeA,
+		nil,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to delete DNS record: %v", err)
 	}
 
-	fmt.Println("DNS record deleted for subdomain:", fullyQualifiedDomainName)
+	fmt.Println("DNS record deleted for subdomain:", subdomain)
 	return nil
 }
